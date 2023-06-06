@@ -102,23 +102,6 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
 #        self.output_dim = input_shape + [4]
 #        super(Int32ToFloatLayer, self).build(input_shape) 
 
-def placeholder(xx):
-    spec = tf.TensorSpec.from_tensor(xx)
-    input_size = spec.dtype.size
-    output_type = tf.float16
-    output_size = output_type.size
-
-    print(f'{input_size}')
-    new_shape = spec.shape+[input_size] # 1 for every byte
-    print(f'{new_shape}')
-    new_spec=tf.TensorSpec(shape=new_shape, dtype = output_type)
-    print(spec, new_spec)
-    s = spec.shape[:-1]
-    new_shape_2 = s + [spec.shape[-1] * input_size]
-    print(new_shape_2)
-    print(xx_float16)
-    print('---')
-    print(tf.reshape(xx_float16, new_shape_2))
 
 class FloatToInt32Layer(tf.keras.layers.Layer):
     def __init__(self,reshape: bool = False, nonlinearity_fn = tf.sigmoid, verbose=True,  **kwargs):
