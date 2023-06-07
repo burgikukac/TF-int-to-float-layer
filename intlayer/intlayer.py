@@ -61,18 +61,62 @@
 # megoldas: tf.saturate_cast
 
 import tensorflow as tf
+
 logger = tf.get_logger()
 
 
 class Int32ToFloatLayer(tf.keras.layers.Layer):
-    """Converts every byte of `int32` tensors to floats (optional scaling)."""
+    """Converts every byte of `int32` tensors to floats (optional scaling).
+        This layer is useful when you have `int32` tensors that represent some kind of
+    data, and you want to convert them to floats. This is often the case when you
+    work with images, where the pixel values are represented as integers in the
+    range [0, 255]. By converting them to floats in the range [-1, 1], you can
+    normalize the data and make it easier for the neural network to learn.
+
+    The `Int32ToFloatLayer` class is a subclass of `tf.keras.layers.Layer`, so it
+    can be used as a layer in a Keras model. The layer takes an `int32` tensor as
+    input, and returns a `float32` tensor as output. The output tensor has the same
+    shape as the input tensor, except that the last dimension is multiplied by 4
+    if the `reshape` argument is set to `True`.
+
+    Args:
+        reshape: A boolean indicating whether to reshape the output tensor.
+            If `True`, the last dimension of the output tensor is multiplied by 4.
+            Default is `False`.
+        target_dtype: A `tf.DType` object indicating the target data type for the
+            output tensor. The possible values are `tf.float16`, `tf.float32`,
+            `tf.float64`, and `tf.bfloat16`. Default is `tf.float32`.
+        verbose: A boolean indicating whether to print debug information during
+            the forward pass. Default is `True`.
+
+    Raises:
+        AssertionError: If the `target_dtype` argument is not one of the tested
+            data types.
+
+    Example usage:
+
+    ```python
+    import tensorflow as tf
+    from intlayer import Int32ToFloatLayer
+
+    model = tf.keras.Sequential([
+        Int32ToFloatLayer(),
+        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Flatten(),
+        tf.keras.layers.Dense(10, activation='softmax')
+    ])"""
 
     TESTED_DTYPES = (tf.float16, tf.float32, tf.float64, tf.bfloat16)
 
-    def __init__(self,
-                 reshape: bool = False,
-                 target_dtype: tf.DType = tf.float32,
-                 verbose=True, **kwargs):
+    def __init__(
+        self,
+        reshape: bool = False,
+        target_dtype: tf.DType = tf.float32,
+        verbose: bool = True,
+        shift_value: float = 0.0,
+        **kwargs,
+    ):
         super(Int32ToFloatLayer, self).__init__(**kwargs)
 
         self.reshape = reshape
@@ -80,26 +124,27 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
         assert target_dtype in self.TESTED_DTYPES
         self._target_dtype = target_dtype  # TODO: mixed precision
         self._CONST_127 = tf.constant(127.5, target_dtype)
-        self._ONE = tf.constant(0.0, target_dtype)
+        self._ONE = tf.constant(shift_value, target_dtype)
         self.verbose = verbose
         if verbose:
-            print(f'int32 init dtype:{self.dtype}')
+            print(f"int32 init dtype:{self.dtype}")
 
     def call(self, x):
         if self.verbose:
-            print(f'x type {x.dtype}')
-            print(f'x shape IN {x.shape}')
+            print(f"x type {x.dtype}")
+            print(f"x shape IN {x.shape}")
         assert x.dtype == tf.int32
         x_bytes = tf.bitcast(x, tf.uint8)
         if self.verbose:
             print(x_bytes)
-        x_float = tf.saturate_cast(x_bytes, self._target_dtype) / \
-            self._CONST_127 - self._ONE
+        x_float = (
+            tf.saturate_cast(x_bytes, self._target_dtype) / self._CONST_127 - self._ONE
+        )
         if self.verbose:
-            print(f'x shape OUT {x_float.shape}')
+            print(f"x shape OUT {x_float.shape}")
         if self.reshape:
             shp = x_float.shape
-            x_float = tf.reshape(x_float, shp[:-2] + [shp[-2]*4])
+            x_float = tf.reshape(x_float, shp[:-2] + [shp[-2] * 4])
         return x_float
 
     def compute_output_shape(self, input_shape):
@@ -110,7 +155,8 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
         return shp
 
     def compute_output_signature(self, input_signature):
-        return (tf.TensorSpec())
+        return tf.TensorSpec()
+
 
 #    def build(self, input_shape):
 #        #if self.reshape
@@ -119,42 +165,64 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
 
 
 class FloatToInt32Layer(tf.keras.layers.Layer):
-    def __init__(self,
-                 reshape: bool = False,
-                 nonlinearity_fn=tf.sigmoid,
-                 verbose=True,
-                 **kwargs):
+    """
+    A custom Keras layer that converts float32 tensors to int32 tensors.
+
+    Args:
+        reshape (bool, optional): Whether to reshape the output tensor. Def: False.
+        nonlinearity_fn (callable, optional): A nonlinearity function to apply to the
+        input tensor. Def: tf.sigmoid.
+        verbose (bool, optional): Whether to print debug information. Defaults to True.
+
+    Attributes:
+        reshape (bool): Whether to reshape the output tensor.
+        nonlinearity_fn (callable): A nonlinearity function to apply to the input
+        tensor.
+        verbose (bool): Whether to print debug information.
+    """
+
+    def __init__(
+        self,
+        reshape: bool = False,
+        nonlinearity_fn=tf.sigmoid,
+        verbose=True,
+        shift_value=0.0,
+        **kwargs,
+    ):
         super(FloatToInt32Layer, self).__init__(**kwargs)
         self.reshape = reshape
         self.nonlinearity_fn = nonlinearity_fn
         self.verbose = verbose
-        self._CONST_127 = tf.constant(127.5, tf.float16)  # TODO move from here
+        self._CONST_127 = tf.constant(127.5, tf.float32)  # TODO move from here
+        self._ONE = tf.constant(shift_value, tf.float32)  # TODO move from here
 
-#    def build(self, input_shape):
-#        self.output_dim = input_shape[1] // 4
-#        super(FloatToInt32Layer, self).build(input_shape)
+    #    def build(self, input_shape):
+    #        self.output_dim = input_shape[1] // 4
+    #        super(FloatToInt32Layer, self).build(input_shape)
 
     def call(self, x):
-        self._CONST_127 = tf.constant(127.5, x.dtype)  # TODO move from here
-        self._ONE = tf.constant(0.0, x.dtype)  # TODO move from here
+        # self._CONST_127 = tf.constant(127.5, x.dtype)  # TODO move from here
+        # self._ONE = tf.constant(0.0, x.dtype)  # TODO move from here
+        self._CONST_127 = tf.cast(self._CONST_127, x.dtype)
+        self._ONE = tf.cast(self._ONE, x.dtype)
 
         if self.verbose:
-            print(f'deconv bemenet {x}')
+            print(f"deconv bemenet {x}")
         x_out = x
         if self.nonlinearity_fn:
             x_out = self.nonlinearity_fn(x)
         if self.reshape:
             new_shape = x_out.shape
-            new_shape = new_shape[:-1] + [new_shape[-1]//4] + [4]
+            new_shape = new_shape[:-1] + [new_shape[-1] // 4] + [4]
             if self.verbose:
-                print(f'reshaping from {x_out.shape} to {new_shape}')
+                print(f"reshaping from {x_out.shape} to {new_shape}")
             x_out = tf.reshape(x_out, new_shape)
         # TANH
         # Convert float16 to bytes
         # print(f'__1__ {x.shape}')
         if self.verbose:
-            print(f'visszaszorozva {x_out * self._CONST_127}')
-        x_bytes = tf.cast((x_out+self._ONE) * self._CONST_127, tf.uint8)
+            print(f"visszaszorozva {(x_out + self._ONE )* self._CONST_127}")
+        x_bytes = tf.cast(tf.round((x_out + self._ONE) * self._CONST_127), tf.uint8)
         if self.verbose:
             print(x_bytes)
         # print(f'__2__ {x_bytes.shape}')
@@ -166,7 +234,7 @@ class FloatToInt32Layer(tf.keras.layers.Layer):
         x_int32 = tf.bitcast(x_bytes, tf.int32)
         # print(f'__4__ {x_int32.shape}')
         if self.verbose:
-            print(f'deconv kimenet {x_int32}')
+            print(f"deconv kimenet {x_int32}")
         return x_int32
 
     def compute_output_shape(self, input_shape):
