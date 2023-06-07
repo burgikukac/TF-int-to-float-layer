@@ -80,7 +80,7 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
         assert target_dtype in self.TESTED_DTYPES
         self._target_dtype = target_dtype  # TODO: mixed precision
         self._CONST_127 = tf.constant(127.5, target_dtype)
-        self._ONE = tf.constant(1.0, target_dtype)
+        self._ONE = tf.constant(0.0, target_dtype)
         self.verbose = verbose
         if verbose:
             print(f'int32 init dtype:{self.dtype}')
@@ -136,7 +136,7 @@ class FloatToInt32Layer(tf.keras.layers.Layer):
 
     def call(self, x):
         self._CONST_127 = tf.constant(127.5, x.dtype)  # TODO move from here
-        self._ONE = tf.constant(1.0, x.dtype)  # TODO move from here
+        self._ONE = tf.constant(0.0, x.dtype)  # TODO move from here
 
         if self.verbose:
             print(f'deconv bemenet {x}')
