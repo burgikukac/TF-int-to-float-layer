@@ -16,7 +16,7 @@
 # eager / non eager teszt
 
 # Tamas Burghard
-# © 2023. This work is licensed under a CC BY 4.0 license.
+# © 2023. This work is licensed under the `Unlicense`license.
 #
 """Int-float Tensorflow layers that could keep all bits of information.
 
@@ -25,16 +25,18 @@
   very big integer inputs for a deep learning model. This could be achieved by
   simply converting the numbers to Float64 and rescaling, however recent
   architectures tend to use less precision.
+  Converting an `Int32` to 32 floats bit-by-bit seems to be too many.
+  This solution is to convert an `Int32` to 4 floats.
+
   These layers take the input integers(for instance an Int32), and byte-by-byte
   convert them to floats.
   These layers intended to being used only in experimentation.
 
   A bytestream input is preferred over this implementation in production.
 
-  Note: the scaling part of the forward and backward conversion are a bit
-  different. A vanilla scaler would divide by 127 (or 255), that is numerically
-  less stable than dividing by 128. The float->int backward conversation uses
-  an optional tanh and a multiplication by 255. This difference makes no
+  Note: Dividing by 127.5 (or 255) is numerically less stable than dividing by 128. 
+  The float->int backward conversation could use an optional `sigmoid` or `tanh`  
+  and a multiplication by 255 . This difference makes no
   problem, as the two layers are not meant to be numerical inverses.
   The point here is the possibility to keep all the information from the
   inputs and the possibility to assemble similar -potentially big- numbers at
@@ -52,6 +54,7 @@
 
   Warning: tf.bitcast is being used.
   Warning: intended to use with simple tensors.
+  Warning: the type `bfloat16` is not supported with shift_value != 0.0
 """
 
 # bfloat16 eseten 127-el osztas eseten csak a 255-lesz rosszul prezentalva,
@@ -60,6 +63,8 @@
 
 # megoldas: tf.saturate_cast
 
+from typing import Optional
+
 import tensorflow as tf
 
 logger = tf.get_logger()
@@ -67,45 +72,37 @@ logger = tf.get_logger()
 
 class Int32ToFloatLayer(tf.keras.layers.Layer):
     """Converts every byte of `int32` tensors to floats (optional scaling).
-        This layer is useful when you have `int32` tensors that represent some kind of
-    data, and you want to convert them to floats. This is often the case when you
-    work with images, where the pixel values are represented as integers in the
-    range [0, 255]. By converting them to floats in the range [-1, 1], you can
-    normalize the data and make it easier for the neural network to learn.
 
     The `Int32ToFloatLayer` class is a subclass of `tf.keras.layers.Layer`, so it
     can be used as a layer in a Keras model. The layer takes an `int32` tensor as
-    input, and returns a `float32` tensor as output. The output tensor has the same
-    shape as the input tensor, except that the last dimension is multiplied by 4
-    if the `reshape` argument is set to `True`.
+    input, and returns a `float32` (or the specified type) tensor as output.
+
+    There is a default scaling algorithm, that is dividing the input by 127.5, and
+    using 1.0 as a shift value. (0-1 limits) There are nummerically more stable
+    constants for the scaling, but the default values are more intuitive.
+
 
     Args:
         reshape: A boolean indicating whether to reshape the output tensor.
             If `True`, the last dimension of the output tensor is multiplied by 4.
-            Default is `False`.
+            Default is `False`, meaning that the output tensor has a new dimension
+            appended to the end. (size 4)
         target_dtype: A `tf.DType` object indicating the target data type for the
             output tensor. The possible values are `tf.float16`, `tf.float32`,
             `tf.float64`, and `tf.bfloat16`. Default is `tf.float32`.
         verbose: A boolean indicating whether to print debug information during
             the forward pass. Default is `True`.
+        scaler_value: A float value indicating the scaling factor for the
+            conversion. We divide with this number. Default is `127.5`.
+        shift_value: A float value indicating the shift value for the conversion.
+            We substract this number here. Default is `1.0`.
+        **kwargs: Keyword arguments to be passed to `tf.keras.layers.Layer`.
 
     Raises:
         AssertionError: If the `target_dtype` argument is not one of the tested
             data types.
 
-    Example usage:
-
-    ```python
-    import tensorflow as tf
-    from intlayer import Int32ToFloatLayer
-
-    model = tf.keras.Sequential([
-        Int32ToFloatLayer(),
-        tf.keras.layers.Conv2D(32, (3, 3), activation='relu'),
-        tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(10, activation='softmax')
-    ])"""
+    """
 
     TESTED_DTYPES = (tf.float16, tf.float32, tf.float64, tf.bfloat16)
 
@@ -114,17 +111,16 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
         reshape: bool = False,
         target_dtype: tf.DType = tf.float32,
         verbose: bool = True,
-        shift_value: float = 0.0,
+        scaler_value: float = 127.5,
+        shift_value: float = 1.0,
         **kwargs,
     ):
         super(Int32ToFloatLayer, self).__init__(**kwargs)
-
         self.reshape = reshape
-        #  rename if class name is fixed
         assert target_dtype in self.TESTED_DTYPES
         self._target_dtype = target_dtype  # TODO: mixed precision
-        self._CONST_127 = tf.constant(127.5, target_dtype)
-        self._ONE = tf.constant(shift_value, target_dtype)
+        self.scaler_value = tf.constant(scaler_value, target_dtype)
+        self.shift_value = tf.constant(shift_value, target_dtype)
         self.verbose = verbose
         if verbose:
             print(f"int32 init dtype:{self.dtype}")
@@ -136,9 +132,10 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
         assert x.dtype == tf.int32
         x_bytes = tf.bitcast(x, tf.uint8)
         if self.verbose:
-            print(x_bytes)
+            print(f"converted to bytes:  {x_bytes}")
         x_float = (
-            tf.saturate_cast(x_bytes, self._target_dtype) / self._CONST_127 - self._ONE
+            tf.saturate_cast(x_bytes, self._target_dtype) / self.scaler_value
+            - self.shift_value
         )
         if self.verbose:
             print(f"x shape OUT {x_float.shape}")
@@ -154,60 +151,60 @@ class Int32ToFloatLayer(tf.keras.layers.Layer):
             shp = input_shape + [4]
         return shp
 
-    def compute_output_signature(self, input_signature):
-        return tf.TensorSpec()
-
-
-#    def build(self, input_shape):
-#        #if self.reshape
-#        self.output_dim = input_shape + [4]
-#        super(Int32ToFloatLayer, self).build(input_shape)
-
 
 class FloatToInt32Layer(tf.keras.layers.Layer):
     """
     A custom Keras layer that converts float32 tensors to int32 tensors.
 
-    Args:
-        reshape (bool, optional): Whether to reshape the output tensor. Def: False.
-        nonlinearity_fn (callable, optional): A nonlinearity function to apply to the
-        input tensor. Def: tf.sigmoid.
-        verbose (bool, optional): Whether to print debug information. Defaults to True.
+    The main concern of this layer is to scale the input tensor to the range
+    [0, 255] and then convert it to `int32`.
+    By default, no nonlinearity is applied to the input tensor, and this layer
+    is the exact inverse of the `Int32ToFloatLayer` layer. However, if you
+    want to use this layer as a part of a neural network, you might want to apply
+    a nonlinearity function to the input tensor, `tf.sigmoid` for example.
 
-    Attributes:
-        reshape (bool): Whether to reshape the output tensor.
-        nonlinearity_fn (callable): A nonlinearity function to apply to the input
-        tensor.
-        verbose (bool): Whether to print debug information.
+    The order of the operations is:
+    1. Apply the nonlinearity function (optional)
+    2. Scale the input tensor to the range [0, 255]
+    3. Convert the input tensor to `int32` from 4 numbers (bytes).
+
+    Args:
+        reshape: Whether to reshape the output tensor. Def: `False`.
+        nonlinearity_fn (callable, optional): A nonlinearity function to apply to the
+            input tensor. Def: `None`: no nonlinearity is applied -
+            you might choose this to get your original input back. You still have to
+            specify the scaling and shifting parameters.
+        scaler_value: The scaling factor for the conversion. Def: `127.5`. We multiply
+            the input tensor with this value, after applying the shift value.
+        shift_value: The shift value for the conversion. Def: `0.0`. We add this value
+            to the input tensor after applying the nonlinearity function.
+        verbose: Whether to print debug information. Def: `False`.
     """
 
     def __init__(
         self,
         reshape: bool = False,
-        nonlinearity_fn=tf.sigmoid,
-        verbose=True,
-        shift_value=0.0,
+        nonlinearity_fn: Optional[callable] = None,
+        verbose: bool = False,
+        scaler_value: float = 127.5,
+        shift_value: float = 0.0,
         **kwargs,
     ):
         super(FloatToInt32Layer, self).__init__(**kwargs)
         self.reshape = reshape
         self.nonlinearity_fn = nonlinearity_fn
         self.verbose = verbose
-        self._CONST_127 = tf.constant(127.5, tf.float32)  # TODO move from here
-        self._ONE = tf.constant(shift_value, tf.float32)  # TODO move from here
-
-    #    def build(self, input_shape):
-    #        self.output_dim = input_shape[1] // 4
-    #        super(FloatToInt32Layer, self).build(input_shape)
+        self.scaler_value = tf.constant(127.5, tf.float32)
+        self.shift_value = tf.constant(shift_value, tf.float32)
 
     def call(self, x):
-        # self._CONST_127 = tf.constant(127.5, x.dtype)  # TODO move from here
-        # self._ONE = tf.constant(0.0, x.dtype)  # TODO move from here
-        self._CONST_127 = tf.cast(self._CONST_127, x.dtype)
-        self._ONE = tf.cast(self._ONE, x.dtype)
+        # converting the constants to the actual dtype of the input
+        # the dtype is not available in the init method
+        self.scaler_value = tf.cast(self.scaler_value, x.dtype)
+        self.shift_value = tf.cast(self.shift_value, x.dtype)
 
         if self.verbose:
-            print(f"deconv bemenet {x}")
+            print(f"deconv input {x}")
         x_out = x
         if self.nonlinearity_fn:
             x_out = self.nonlinearity_fn(x)
@@ -217,24 +214,19 @@ class FloatToInt32Layer(tf.keras.layers.Layer):
             if self.verbose:
                 print(f"reshaping from {x_out.shape} to {new_shape}")
             x_out = tf.reshape(x_out, new_shape)
-        # TANH
-        # Convert float16 to bytes
-        # print(f'__1__ {x.shape}')
+        # Convert float to bytes
         if self.verbose:
-            print(f"visszaszorozva {(x_out + self._ONE )* self._CONST_127}")
-        x_bytes = tf.cast(tf.round((x_out + self._ONE) * self._CONST_127), tf.uint8)
+            print(f"after rescaling {(x_out + self.shift_value )* self.scaler_value}")
+        # round is not working well for bfloat16 and scaling
+        x_bytes = tf.cast(
+            tf.round((x_out + self.shift_value) * self.scaler_value), tf.uint8
+        )
         if self.verbose:
             print(x_bytes)
-        # print(f'__2__ {x_bytes.shape}')
-        # Reshape the byte tensor to remove the byte dimension
-        # x_bytes = tf.reshape(x_bytes, (-1, x.shape[1]))
-        # print(f'__3__ {x_bytes.shape}')
-
         # Convert bytes to int32
         x_int32 = tf.bitcast(x_bytes, tf.int32)
-        # print(f'__4__ {x_int32.shape}')
         if self.verbose:
-            print(f"deconv kimenet {x_int32}")
+            print(f"deconv output {x_int32}")
         return x_int32
 
     def compute_output_shape(self, input_shape):
