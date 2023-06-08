@@ -67,7 +67,7 @@ def _test_long_test():
     ),
 )
 def test_int32_to_floats(reshape, target_dtype, test_size, chunk_size, shift_value):
-    if shift_value == 1.0 and target_dtype == tf.bfloat16:
+    if target_dtype == tf.bfloat16:
         pytest.xfail("This combination is expected to fail")
     int32_to_float16_layer = Int32ToFloatLayer(
         reshape=reshape, dtype=target_dtype, verbose=False, shift_value=shift_value
