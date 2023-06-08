@@ -32,8 +32,7 @@ def run_test_int32_to_floats(P, chunk_size=2**24):
         assert np.all(x_chunk == x_chunk2), (
             f"Conversion failed for chunk starting at x = {i}\n"
             f"First failed number: {x_chunk[np.argmax(x_chunk != x_chunk2)]}\n"
-            f"Failed with params: {P['reshape']}, "
-            f" {shift_value}"
+            f"Failed with params: {P}"
         )
         pbar.update(chunk_size)
     pbar.close()
