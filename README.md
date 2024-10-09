@@ -1,26 +1,17 @@
-# Large int inputs in tensorflow.
+# Large int inputs in Tensorflow.
 
 
 This repository contains two custom Keras layers for TensorFlow that convert between `Int32` and `float` tensors:
 
-`Int32ToFloatLayer`: A layer that converts `Int32` tensors to `float` tensors.
-`FloatToInt32Layer`: A layer that converts `float` tensors to `Int32` tensors.
+- **Int32ToFloatLayer**: A layer that converts `Int32` tensors to `float` tensors.  
+- **FloatToInt32Layer**: A layer that converts `float` tensors to `Int32` tensors.
 
-The rationale behind is to keep all of the bit information of potentially
-  very big integer inputs for a deep learning model. This could be achieved by
-  simply converting the numbers to `Float64` and rescaling, however recent
-  architectures tend to use less precision.
-  Converting an `Int32` to 32 floats bit-by-bit seems to be too many.
-  This solution is to convert an `Int32` to 4 floats.
+The rationale behind these layers is to retain all the bit-level information of potentially very large integer inputs in a deep learning model. While this could be achieved by simply converting the numbers to `Float64` and rescaling, recent architectures tend to use lower precision. Converting an `Int32` to 32 floats bit-by-bit seems excessive, so the solution is to convert an `Int32` into 4 floats instead.
 
-  We take the input integers(for instance an `Int32`), and byte-by-byte
-  convert them to floats.
+The method involves taking input integers (e.g., an `Int32`) and converting them byte-by-byte into floats.
 
-My use case was sorting a vector of large integers, where I should be able to test
-whether I got back the exact answer, not just an approximation.
+My use case involved sorting a vector of large integers, where it was essential to verify that the exact values were returned, not just an approximation.
 
-  __These layers intended to being used only in experimentation.__
+These layers are intended for experimental use only.
 
-
-
-To use these layers in your TensorFlow models, simply import them from the intlayer module and add them to your model as you would any other Keras layer.
+To use these layers in your TensorFlow models, simply import them from the `intlayer` module and add them to your model like any other Keras layer.
